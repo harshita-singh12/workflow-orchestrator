@@ -1,0 +1,16 @@
+# Multi-stage build: compile in a full Go image, run from a minimal static base.
+FROM golang:1.24-alpine AS build
+# go.mod pins `go 1.25.0` (pulled in transitively by grpc-go's own go.mod); GOTOOLCHAIN=auto
+# lets the 1.24 toolchain download and use 1.25 automatically rather than requiring the
+# golang:1.25 image tag to already exist on whatever Docker Hub mirror is configured.
+ENV GOTOOLCHAIN=auto
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /out/server ./cmd/server
+
+FROM gcr.io/distroless/static-debian12:nonroot
+COPY --from=build /out/server /server
+EXPOSE 8080 9090
+ENTRYPOINT ["/server"]

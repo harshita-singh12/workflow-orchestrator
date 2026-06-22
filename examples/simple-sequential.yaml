@@ -1,0 +1,20 @@
+# A minimal three-step sequential pipeline: fetch -> transform -> notify.
+# Try it:
+#   curl -X POST localhost:8080/api/definitions --data-binary @examples/simple-sequential.yaml -H "Content-Type: application/yaml"
+#   curl -X POST localhost:8080/api/runs -d '{"name":"simple-sequential"}'
+name: simple-sequential
+version: 1
+steps:
+  - name: fetch
+    type: http_fetch
+    max_attempts: 3
+    timeout_seconds: 10
+
+  - name: transform
+    type: transform
+    depends_on: [fetch]
+    max_attempts: 2
+
+  - name: notify
+    type: noop
+    depends_on: [transform]

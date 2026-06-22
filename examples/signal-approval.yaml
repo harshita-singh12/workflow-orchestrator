@@ -1,0 +1,20 @@
+# Demonstrates signals: `await_approval` is a built-in `signal_wait` step type that blocks
+# until a matching external signal arrives (or resolves immediately if one already has), then
+# a downstream step consumes the signal's payload. Try it:
+#   RUN_ID=$(curl -s -X POST localhost:8080/api/runs -d '{"name":"signal-approval"}' | jq -r .ID)
+#   curl -X POST localhost:8080/api/runs/$RUN_ID/signal -d '{"name":"await_approval","payload":{"approved":true,"approver":"alice"}}'
+name: signal-approval
+version: 1
+steps:
+  - name: submit_request
+    type: noop
+
+  - name: await_approval
+    type: signal_wait
+    depends_on: [submit_request]
+    # signal_wait matches signals by this step's name unless `signal_name` is set in input.
+    timeout_seconds: 3600
+
+  - name: apply_decision
+    type: transform
+    depends_on: [await_approval]

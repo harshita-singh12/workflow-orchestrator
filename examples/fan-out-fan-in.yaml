@@ -1,0 +1,29 @@
+# Demonstrates parallel fan-out (three independent branches after `ingest`) followed by a
+# fan-in join that waits for all three before proceeding.
+name: fan-out-fan-in
+version: 1
+steps:
+  - name: ingest
+    type: http_fetch
+
+  - name: validate_schema
+    type: transform
+    depends_on: [ingest]
+
+  - name: enrich_geo
+    type: sleep
+    depends_on: [ingest]
+    input: { ms: 150 }
+
+  - name: enrich_pricing
+    type: sleep
+    depends_on: [ingest]
+    input: { ms: 100 }
+
+  - name: merge
+    type: transform
+    depends_on: [validate_schema, enrich_geo, enrich_pricing]
+
+  - name: publish
+    type: noop
+    depends_on: [merge]

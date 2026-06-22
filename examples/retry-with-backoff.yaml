@@ -1,0 +1,19 @@
+# Demonstrates retries with exponential backoff. `flaky` fails ~40% of the time (see
+# cmd/worker/main.go); with 5 attempts and backoff starting at 500ms doubling up to 8s, watch
+# the dashboard's step history to see RETRY_BACKOFF -> QUEUED transitions driven by the
+# durable timer service (DESIGN.md section 4), not an in-memory sleep.
+name: retry-with-backoff
+version: 1
+steps:
+  - name: unreliable_call
+    type: flaky
+    input: { fail_rate: 0.4 }
+    max_attempts: 5
+    initial_backoff_ms: 500
+    backoff_multiplier: 2.0
+    max_backoff_ms: 8000
+    timeout_seconds: 5
+
+  - name: finalize
+    type: noop
+    depends_on: [unreliable_call]

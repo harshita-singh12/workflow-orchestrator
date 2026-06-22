@@ -1,0 +1,92 @@
+syntax = "proto3";
+
+package worker;
+
+option go_package = "github.com/aryanraj/workflow-orchestrator/gen/workerpb";
+
+import "google/protobuf/timestamp.proto";
+
+// WorkerService is the gRPC surface between a worker process and the orchestrator server.
+// Workers pull raw task messages directly from Redis Streams (not over gRPC); gRPC is used
+// only for the durability-critical operations that must be a compare-and-swap against
+// Postgres: claiming a task attempt, heartbeating a lease, and reporting a result.
+service WorkerService {
+  // RegisterWorker announces a worker's presence and the set of task-type queues it can
+  // service. The server records this (backed by Redis, TTL'd) so the dashboard can show a
+  // live worker fleet. Safe to call repeatedly (idempotent upsert).
+  rpc RegisterWorker(RegisterWorkerRequest) returns (RegisterWorkerResponse);
+
+  // Heartbeat keeps a worker's registration alive. When task_attempt_id is set, it also
+  // extends that attempt's lease (for long-running tasks) — this is a CAS against
+  // task_attempts.status = 'LEASED' AND lease_owner = worker_id.
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+
+  // ClaimTask is the exactly-once boundary described in DESIGN.md section 3: it performs
+  // `UPDATE task_attempts SET status='LEASED' WHERE id=$1 AND status='QUEUED'`. Only the
+  // first caller (of possibly many, due to at-least-once Redis Streams delivery) succeeds;
+  // everyone else is told ALREADY_CLAIMED and must not execute the task handler.
+  rpc ClaimTask(ClaimTaskRequest) returns (ClaimTaskResponse);
+
+  // ReportResult records the terminal outcome of a claimed attempt. Idempotent: a retried
+  // call after the first one already landed is a safe no-op that returns the same outcome.
+  rpc ReportResult(ReportResultRequest) returns (ReportResultResponse);
+}
+
+message RegisterWorkerRequest {
+  string worker_id = 1;
+  repeated string queues = 2;
+  int32 capacity = 3;
+}
+
+message RegisterWorkerResponse {
+  bool ok = 1;
+}
+
+message HeartbeatRequest {
+  string worker_id = 1;
+  string task_attempt_id = 2; // optional; empty means "just liveness, no lease to extend"
+}
+
+message HeartbeatResponse {
+  bool ok = 1;
+  google.protobuf.Timestamp lease_expires_at = 2;
+}
+
+message ClaimTaskRequest {
+  string task_attempt_id = 1;
+  string idempotency_key = 2;
+  string worker_id = 3;
+}
+
+enum ClaimStatus {
+  CLAIM_STATUS_UNSPECIFIED = 0;
+  CLAIMED = 1;
+  ALREADY_CLAIMED = 2;   // another worker/redelivery already holds or finished this attempt
+  NOT_FOUND = 3;
+  CANCELLED = 4;         // the owning workflow run was cancelled; do not execute
+}
+
+message ClaimTaskResponse {
+  ClaimStatus status = 1;
+  string step_name = 2;
+  string task_type = 3;
+  string input_json = 4;
+  int32 attempt_number = 5;
+  int32 timeout_seconds = 6;
+  google.protobuf.Timestamp lease_expires_at = 7;
+}
+
+message ReportResultRequest {
+  string task_attempt_id = 1;
+  string worker_id = 2;
+  string idempotency_key = 3;
+  bool success = 4;
+  string output_json = 5;
+  string error_message = 6;
+  string error_type = 7;
+}
+
+message ReportResultResponse {
+  bool ok = 1;
+  bool accepted = 2; // false if this was a stale/duplicate report (lease already superseded)
+}
