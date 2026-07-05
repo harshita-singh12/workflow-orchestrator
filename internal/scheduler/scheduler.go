@@ -24,7 +24,7 @@ const (
 	NumShards = engine.NumShards
 )
 
-// Scheduler runs the three cooperating loops described in DESIGN.md section 5: membership
+// Scheduler runs three cooperating loops: membership
 // heartbeating, leader election (whoever holds the lock computes and publishes the shard
 // map), and a local shard-map refresh every node uses to compute OwnedShards(). It degrades
 // gracefully to "own everything" (nil filter) whenever it has no better information yet —

@@ -57,9 +57,9 @@ func (q *Queue) Close() error { return q.rdb.Close() }
 // Consume launches two background loops: one reading new messages (">") for this consumer,
 // and one periodically running XAUTOCLAIM to steal messages that have been pending (unacked)
 // on *any* consumer in the group for longer than idleTimeout — this is what gives us
-// automatic recovery when a worker process dies mid-task (see DESIGN.md section 3 point 2:
-// Redis Streams redelivery is the "at-least-once" half of the exactly-once story, the CAS
-// claim in Postgres is the other half).
+// automatic recovery when a worker process dies mid-task (Redis Streams redelivery is the
+// "at-least-once" half of the exactly-once story, the CAS claim in Postgres is the other
+// half).
 func (q *Queue) Consume(ctx context.Context, stream, group, consumer string, idleTimeout time.Duration) (<-chan queue.Message, error) {
 	if err := q.EnsureGroup(ctx, stream, group); err != nil {
 		return nil, err

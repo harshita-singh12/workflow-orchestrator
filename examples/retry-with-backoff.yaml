@@ -1,7 +1,7 @@
 # Demonstrates retries with exponential backoff. `flaky` fails ~40% of the time (see
 # cmd/worker/main.go); with 5 attempts and backoff starting at 500ms doubling up to 8s, watch
 # the dashboard's step history to see RETRY_BACKOFF -> QUEUED transitions driven by the
-# durable timer service (DESIGN.md section 4), not an in-memory sleep.
+# durable timer service, not an in-memory sleep.
 name: retry-with-backoff
 version: 1
 steps:

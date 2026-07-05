@@ -1,6 +1,6 @@
 // Package queue defines the task-delivery interface used by the outbox relay (producer) and
 // workers (consumers). internal/queue/redisstream implements it on Redis Streams consumer
-// groups; internal/queue/memory implements it in-process for tests. See DESIGN.md section 7.
+// groups; internal/queue/memory implements it in-process for tests.
 package queue
 
 import (

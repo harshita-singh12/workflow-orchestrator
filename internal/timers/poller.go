@@ -1,5 +1,5 @@
-// Package timers implements the durable timer poller described in DESIGN.md section 4: it
-// periodically asks Postgres "what's due", then hands each candidate to the engine, which
+// Package timers implements the durable timer poller: it periodically asks Postgres "what's
+// due", then hands each candidate to the engine, which
 // atomically claims and fires it (CAS) in one transaction together with its effect (e.g.
 // re-dispatching a retry). No wall clock other than the database's is ever consulted for the
 // due-comparison, which is what avoids needing NTP-level clock sync between nodes.

@@ -1,8 +1,8 @@
 // Package scheduler implements Phase 2 sharded scheduling: a consistent-hash ring over live
 // server nodes, Redis-backed leader election that elects a single writer of the resulting
 // shard->node assignment, and a read-side helper every node uses to compute which shards
-// (and therefore which workflow runs) it currently owns. See DESIGN.md section 5 for the
-// full rationale, in particular why this is a throughput optimization and not a correctness
+// (and therefore which workflow runs) it currently owns. See README's "Phase 2 features and
+// their tradeoffs" section for the full rationale, in particular why this is a throughput optimization and not a correctness
 // mechanism — every state transition it gates is independently protected by a CAS in
 // internal/store, so a stale or momentarily-inconsistent shard map can never cause a
 // duplicate task execution, only redundant/wasted reconcile work.

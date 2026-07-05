@@ -21,7 +21,7 @@ service WorkerService {
   // task_attempts.status = 'LEASED' AND lease_owner = worker_id.
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
 
-  // ClaimTask is the exactly-once boundary described in DESIGN.md section 3: it performs
+  // ClaimTask is the exactly-once boundary: it performs
   // `UPDATE task_attempts SET status='LEASED' WHERE id=$1 AND status='QUEUED'`. Only the
   // first caller (of possibly many, due to at-least-once Redis Streams delivery) succeeds;
   // everyone else is told ALREADY_CLAIMED and must not execute the task handler.

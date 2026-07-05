@@ -1,6 +1,6 @@
 // Package worker implements the worker-side runtime: it consumes task messages from Redis
-// Streams, performs the exactly-once ClaimTask CAS over gRPC before running anything (see
-// DESIGN.md section 3), dispatches to a registered Handler by task type, heartbeats the
+// Streams, performs the exactly-once ClaimTask CAS over gRPC before running anything,
+// dispatches to a registered Handler by task type, heartbeats the
 // lease while the handler runs, and reports the result back over gRPC.
 package worker
 
@@ -18,8 +18,8 @@ import (
 )
 
 // Handler executes one task type. It receives the task's input JSON and the idempotency key
-// (which handlers should use as the dedup key for any external side effect they perform —
-// see DESIGN.md section 3 point 5) and returns either an output payload or an error.
+// (which handlers should use as the dedup key for any external side effect they perform)
+// and returns either an output payload or an error.
 type Handler func(ctx context.Context, input json.RawMessage, idempotencyKey string) (json.RawMessage, error)
 
 type Worker struct {

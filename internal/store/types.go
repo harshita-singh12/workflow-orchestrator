@@ -1,7 +1,7 @@
 // Package store defines the persistence interface used by the engine and its background
 // services (outbox relay, timer poller, lease reaper). It is intentionally storage-agnostic:
 // internal/store/postgres implements it against Postgres/pgx, internal/store/memory
-// implements it in-process for unit tests. See DESIGN.md section 7 for the rationale.
+// implements it in-process for unit tests. See README's "Pluggable backends" section for the rationale.
 package store
 
 import (

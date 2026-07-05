@@ -1,5 +1,5 @@
 // Package grpcapi implements the worker-facing gRPC surface (proto/worker.proto): the
-// exactly-once claim/report boundary described in DESIGN.md section 3, plus worker
+// exactly-once claim/report boundary, plus worker
 // registration/heartbeat for dashboard visibility.
 package grpcapi
 
@@ -112,7 +112,7 @@ func (s *Server) ClaimTask(ctx context.Context, req *workerpb.ClaimTaskRequest) 
 		return &workerpb.ClaimTaskResponse{Status: workerpb.ClaimStatus_CANCELLED}, nil
 	}
 
-	// Best-effort display transition; not load-bearing for correctness (see DESIGN.md — the
+	// Best-effort display transition; not load-bearing for correctness (the
 	// task_attempts row, not the steps row, is the source of truth for exactly-once dispatch).
 	_, _ = s.Store.UpdateStepStatus(ctx, step.ID, []store.StepStatus{store.StepQueued}, store.StepRunning, nil, nil, false)
 

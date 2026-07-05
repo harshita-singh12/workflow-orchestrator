@@ -1,5 +1,5 @@
 // Package lock defines a minimal distributed-locking interface used for the scheduler's
-// leader election (DESIGN.md section 5). internal/lock/redislock implements it with Redis
+// leader election. internal/lock/redislock implements it with Redis
 // SET NX PX plus a Lua CAS for safe release/renew.
 package lock
 

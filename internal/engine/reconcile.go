@@ -215,7 +215,7 @@ func (e *Engine) tryResolveSignalWait(ctx context.Context, q store.Queries, run 
 	return false, nil
 }
 
-// dispatchStep is the transactional-outbox write path from DESIGN.md section 2.1: create the
+// dispatchStep is the transactional-outbox write path: create the
 // next task_attempt, write the matching outbox row in the same transaction, and flip the
 // step to QUEUED. `from` is the CAS guard (the step statuses this dispatch is allowed to
 // originate from).
@@ -361,7 +361,7 @@ func (e *Engine) Reconcile(ctx context.Context, runID uuid.UUID) error {
 }
 
 // HandleTaskResult applies a worker's reported outcome for a task attempt. Returns
-// accepted=false if this was a stale/duplicate report (see DESIGN.md section 3 point 3).
+// accepted=false if this was a stale/duplicate report.
 func (e *Engine) HandleTaskResult(ctx context.Context, attemptID uuid.UUID, workerID string, success bool, output []byte, errMsg *string) (accepted bool, err error) {
 	err = e.Store.WithTx(ctx, func(ctx context.Context, q store.Queries) error {
 		attempt, applied, cerr := q.CompleteTaskAttempt(ctx, attemptID, workerID, success, output, errMsg)
@@ -449,7 +449,7 @@ func (e *Engine) handleAttemptOutcome(ctx context.Context, q store.Queries, atte
 	return e.reconcileTx(ctx, q, run, steps)
 }
 
-// computeBackoff applies exponential backoff with a cap and +/-20% jitter, per DESIGN.md.
+// computeBackoff applies exponential backoff with a cap and +/-20% jitter.
 // attemptsMade is the number of attempts already made (i.e. the one that just failed).
 func computeBackoff(step *store.Step, attemptsMade int) time.Duration {
 	base := float64(step.InitialBackoffMS) * math.Pow(step.BackoffMultiplier, float64(attemptsMade-1))
@@ -462,7 +462,7 @@ func computeBackoff(step *store.Step, attemptsMade int) time.Duration {
 
 // HandleFiredTimer is called by the timer poller (internal/timerservice) once it discovers a
 // candidate due timer. It atomically claims the timer (CAS PENDING->FIRED) and applies its
-// effect in one transaction — see DESIGN.md section 4 and the FireTimerCAS doc comment.
+// effect in one transaction — see the FireTimerCAS doc comment.
 func (e *Engine) HandleFiredTimer(ctx context.Context, timerID uuid.UUID) error {
 	return e.Store.WithTx(ctx, func(ctx context.Context, q store.Queries) error {
 		timer, applied, err := q.FireTimerCAS(ctx, timerID)
@@ -599,7 +599,7 @@ func (e *Engine) CancelRun(ctx context.Context, runID uuid.UUID) error {
 // every non-terminal run owned by the given shard set. Because reconcileTx is a pure
 // function of DB state, this is what makes crash recovery correct — a run that was mid-flight
 // when the process died gets exactly the same treatment as one that's simply progressing
-// normally under a periodic nudge. See DESIGN.md section 0.
+// normally under a periodic nudge.
 func (e *Engine) RecoverShards(ctx context.Context, shardIDs []int) (int, error) {
 	runs, err := e.Store.ListRunningRunsForShards(ctx, shardIDs)
 	if err != nil {

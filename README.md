@@ -7,9 +7,8 @@ schedules steps, dispatches them to workers over Redis Streams with a Postgres-b
 transactional outbox, retries with exponential backoff via durable (DB-polled, not in-memory)
 timers, and survives the server process being killed mid-workflow.
 
-Read **[DESIGN.md](DESIGN.md)** first — it's the up-front design (state machines, schema,
-exactly-once dispatch, sharding) that everything here is built against, including a section
-on deliberate simplifications vs. real Temporal. This file covers how the pieces fit
+This file covers the design (state machines, schema, exactly-once dispatch, sharding),
+including a section on deliberate simplifications vs. real Temporal, how the pieces fit
 together operationally, how to run it, and what was actually measured.
 
 ## Contents
@@ -26,7 +25,6 @@ together operationally, how to run it, and what was actually measured.
 - [The durability test](#the-durability-test-actually-run-not-just-written)
 - [Load test results and bottleneck analysis](#load-test-results-and-bottleneck-analysis)
 - [Project structure](#project-structure)
-- [Deviations from DESIGN.md](#deviations-from-designmd)
 
 ## Architecture at a glance
 
@@ -84,9 +82,9 @@ stateDiagram-v2
 Each step inside a run has its own, finer-grained state machine
 (`PENDING → READY → QUEUED → RUNNING → COMPLETED|RETRY_BACKOFF→...→FAILED|SKIPPED`), and each
 dispatch attempt of a step has its own exactly-once-oriented state machine
-(`QUEUED → LEASED → SUCCEEDED|FAILED|EXPIRED`). Both are diagrammed in full in
-[DESIGN.md section 1](DESIGN.md#1-state-machines) — this file keeps the top-level picture
-since that's what you inspect from the dashboard.
+(`QUEUED → LEASED → SUCCEEDED|FAILED|EXPIRED`). This file keeps the top-level picture since
+that's what you inspect from the dashboard; both finer-grained machines are enforced entirely
+by CAS'd Postgres `UPDATE ... WHERE status = $expected` statements, not by any in-memory state.
 
 ## The outbox flow
 
@@ -122,9 +120,8 @@ sequenceDiagram
 
 The critical property: **a task is only ever visible to a worker after the transaction that
 created it has committed**, because the outbox insert and the state transition that created it
-are the same Postgres transaction. See [DESIGN.md section 2.1](DESIGN.md#21-the-transactional-outbox-precisely)
-for the full writeup, including what happens if the relay crashes mid-batch (answer: harmless
-re-publish, because claiming is itself a CAS — see next section).
+are the same Postgres transaction. If the relay crashes mid-batch, the answer is harmless
+re-publish, because claiming is itself a CAS — see next section.
 
 ## Exactly-once dispatch, in one picture
 
@@ -145,21 +142,28 @@ sequenceDiagram
     Note over W2: never invokes the task handler
 ```
 
-Full explanation, including the lease-expiry reaper that closes the "worker crashed after
-claiming" gap, is in [DESIGN.md section 3](DESIGN.md#3-guaranteeing-exactly-once-task-execution).
+If a worker claims a task and then dies before reporting, the attempt would be stuck `LEASED`
+forever without a watchdog. The lease reaper (`internal/leases`) periodically finds attempts
+whose `lease_expires_at` has passed and drives them through the same retry/fail path a
+reported failure would take — that's what closes the "worker crashed after claiming" gap.
 
 ## Phase 1 features
 
 - Workflows defined as JSON/YAML DAGs (`internal/workflowdsl`), with validation (cycle
   detection, unknown-dependency detection, at-least-one-root-step) and sane retry/timeout
-  defaults.
+  defaults. YAML parsing of object-typed step `input` fields requires normalizing through a
+  generic `any` and re-marshaling to JSON before decoding into `Definition`
+  (`internal/workflowdsl/dsl.go`) — `yaml.v3` cannot unmarshal a YAML mapping node directly
+  into a `json.RawMessage` field, since it has no notion of "capture this subtree as raw JSON"
+  the way `encoding/json` does. The parsed result (a validated DAG → canonical JSON) is
+  unaffected; only the parse path gains a step. Covered by `TestParseYAMLWithMapInput`.
 - Sequential and parallel step execution — a step becomes dispatchable the instant *all* its
   `depends_on` are `COMPLETED`; independent steps fan out in the same reconcile pass
   (`internal/engine/reconcile.go`).
 - Retries with exponential backoff + jitter, capped, per step (`max_attempts`,
   `initial_backoff_ms`, `backoff_multiplier`, `max_backoff_ms`) and a per-step `timeout_seconds`.
 - Durable execution via DB-backed state: the engine's `reconcileTx` is a pure function of
-  Postgres state (DESIGN.md section 0), so a server restart just re-runs it — verified by an
+  Postgres state, so a server restart just re-runs it — verified by an
   actual `kill -9` test, see below.
 - Workers pull tasks from Redis Streams and report results back over gRPC
   (`proto/worker.proto`, `internal/grpcapi`, `internal/worker`).
@@ -178,14 +182,21 @@ claiming" gap, is in [DESIGN.md section 3](DESIGN.md#3-guaranteeing-exactly-once
   Postgres CAS, so momentarily-stale shard ownership during a rebalance can never cause a
   duplicate dispatch, only redundant work. Disabled by default (`ENABLE_SHARDING=false`)
   because a single node correctly "owns everything" without it; enabling it is a pure
-  scale-out knob. See DESIGN.md section 5 for the full argument.
+  scale-out knob.
 - **Durable timers** (`internal/timers`): retry backoff and future work are rows in a
   `timers` table with a `fire_at` timestamp, polled by comparing against Postgres's own
-  `now()` — never a worker's or server's local wall clock. *Tradeoff*: polling (200ms
-  interval) instead of a push-based scheduler trades a small, bounded latency floor
-  (empirically measured below) for radical simplicity and zero extra moving parts; see
-  DESIGN.md section 4 for why this sidesteps clock-sync entirely, and the load test report
-  below for exactly how much latency it costs.
+  `now()` — never a worker's or server's local wall clock, which is what lets multiple server
+  instances agree on which timers are due without needing NTP-level clock sync between
+  themselves. *Tradeoff*: polling (200ms interval) instead of a push-based scheduler trades a
+  small, bounded latency floor (empirically measured below) for radical simplicity and zero
+  extra moving parts; see the load test report below for exactly how much latency it costs.
+  Firing a timer was originally specced as a single atomic "select + flip to FIRED" batch
+  operation (mirroring the outbox relay's `FOR UPDATE SKIP LOCKED` pattern), but it's
+  implemented as a two-step **non-mutating candidate scan** (`ListDueTimers`) plus a
+  **per-timer CAS claim** (`FireTimerCAS`) performed by the engine in the *same transaction* as
+  the retry it triggers. That's strictly better than the original plan: it makes "timer fired"
+  and "next attempt dispatched" atomic together, rather than two separate transactions with a
+  crash window between them.
 - **Signals and queries** (`internal/engine` `ApplySignal`, HTTP `POST /runs/{id}/signal`):
   external events can resolve a `signal_wait` step or cancel a run; queries are just reads of
   current DB state. *Tradeoff*: because this project models workflows as data (a DAG) rather
@@ -348,9 +359,17 @@ finished executing* on the worker side, but the worker's `ReportResult` RPC land
 exact instant the server was killed, so the result was lost. That step's `task_attempt` sat
 `LEASED` until the reaper (polling every 1s, lease duration shortened to 3s for the test)
 expired it, at which point the engine treated it exactly like a reported failure — either
-scheduling a durable retry timer or failing the run, depending on `max_attempts`. That's
-`DESIGN.md` section 3, point 4 (the lease-expiry reaper closing the "crash after claim, before
-report" gap), observed for real, not just designed on paper.
+scheduling a durable retry timer or failing the run, depending on `max_attempts`. That's the
+lease-expiry reaper closing the "crash after claim, before report" gap, observed for real, not
+just designed on paper.
+
+It also surfaced the engine's actual retry default directly: `max_attempts` defaults to 1 (no
+retry) unless a workflow definition sets it higher. A step killed mid-flight with no retry
+budget left correctly fails the run rather than being silently retried — which is correct
+engine behavior, but it meant the first version of this test's workflow (default
+`max_attempts`) legitimately failed after a crash landed on an already-executing step, and the
+test had to set `max_attempts: 3` to exercise the retry-after-crash path it's meant to
+demonstrate. Left as-is because it's the right default (opt-in retries, not implicit ones).
 
 ## Load test results and bottleneck analysis
 
@@ -404,7 +423,7 @@ a per-step loop; tune `pgxpool`'s pool size alongside Postgres's (untouched defa
 `LISTEN/NOTIFY`-woken dispatch on top of the polling fallback to cut the per-wave latency
 floor; consider `synchronous_commit=off` for the hot tables as a deliberate,
 documented durability/throughput tradeoff. **Sharding would not help this specific
-bottleneck** — per DESIGN.md section 5, it partitions *which node* reconciles a run, not
+bottleneck** — it partitions *which node* reconciles a run, not
 Postgres's own commit capacity, since every node still talks to the same single Postgres
 instance.
 
@@ -435,30 +454,3 @@ examples/                     ready-to-run example workflow DAGs
 frontend/                     React + Vite + TypeScript dashboard
 migrations embedded in internal/store/postgres/migrations/
 ```
-
-## Deviations from DESIGN.md
-
-- **YAML parsing of object-typed step `input` fields** required normalizing through a generic
-  `any` and re-marshaling to JSON before decoding into `Definition` (`internal/workflowdsl/dsl.go`) —
-  `yaml.v3` cannot unmarshal a YAML mapping node directly into a `json.RawMessage` field, since
-  it has no notion of "capture this subtree as raw JSON" the way `encoding/json` does. Design
-  intent (validated DAG → canonical JSON) is unchanged; only the parse path gained a step.
-  Covered by `TestParseYAMLWithMapInput`.
-- **Timer firing** was originally specced as a single atomic "select + flip to FIRED" batch
-  operation (mirroring the outbox relay's `FOR UPDATE SKIP LOCKED` pattern). It was changed
-  during implementation to a two-step **non-mutating candidate scan** (`ListDueTimers`) plus a
-  **per-timer CAS claim** (`FireTimerCAS`) performed by the engine in the *same transaction* as
-  the retry it triggers. This is strictly better than the original plan: it makes "timer
-  fired" and "next attempt dispatched" atomic together, rather than two separate transactions
-  with a crash window between them. Documented in DESIGN.md section 4's implementation as the
-  authoritative version; this note exists so the divergence from the earliest draft isn't silent.
-- **`max_attempts` defaults to 1 (no retry)** unless a workflow definition sets it higher. This
-  surfaced directly while building the durability test: a step killed mid-flight with no retry
-  budget left correctly fails the run rather than being silently retried — which is correct
-  engine behavior, but meant the first version of the durability test's workflow (default
-  `max_attempts`) legitimately failed after a crash landed on an already-executing step, and
-  the test had to set `max_attempts: 3` to exercise the retry-after-crash path it's meant to
-  demonstrate. Left as-is because it's the right default (opt-in retries, not implicit ones).
-- **No separate `loadtest/REPORT.md`.** The load-test write-up lives in this README instead of
-  a standalone report file, to keep the actual data next to how to reproduce it rather than in
-  a second document that could drift out of sync.

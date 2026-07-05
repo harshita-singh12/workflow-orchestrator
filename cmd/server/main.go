@@ -1,7 +1,7 @@
 // Command server is the orchestrator server: it hosts the gRPC worker API, the HTTP
 // dashboard API, and the background services that make durable execution work — the outbox
 // relay, the timer poller, the lease reaper, and (optionally) the sharded-scheduler
-// leader-election loop. See DESIGN.md for the full design and README.md for how the pieces
+// leader-election loop. See README.md for the full design and how the pieces
 // fit together operationally.
 package main
 
@@ -96,7 +96,7 @@ func main() {
 
 	// Recovery sweep: on startup, and periodically thereafter, re-run DAG evaluation for
 	// every non-terminal run this node owns. This is what makes a killed-and-restarted
-	// server correctly resume mid-flight workflows (see DESIGN.md section 0 and the
+	// server correctly resume mid-flight workflows (see the
 	// TestServerRestartMidWorkflow durability test in test/e2e) — reconcile is a pure
 	// function of DB state, so recovery is just "call it again".
 	go runRecoverySweep(ctx, eng, shardIDsFunc, log)

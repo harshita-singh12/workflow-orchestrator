@@ -59,7 +59,7 @@ type Queries interface {
 	InsertOutboxMessage(ctx context.Context, msg NewOutboxMessage) (int64, error)
 	// FetchAndLockPendingOutbox selects up to `limit` PENDING rows with FOR UPDATE SKIP LOCKED.
 	// Must be called inside WithTx; the caller publishes to the queue and then calls
-	// MarkOutboxPublished for each row before the transaction commits (see DESIGN.md 2.1).
+	// MarkOutboxPublished for each row before the transaction commits.
 	FetchAndLockPendingOutbox(ctx context.Context, shardIDs []int, limit int) ([]OutboxMessage, error)
 	MarkOutboxPublished(ctx context.Context, id int64) error
 
@@ -72,7 +72,7 @@ type Queries interface {
 	// FireTimerCAS atomically transitions one timer PENDING->FIRED
 	// (`WHERE id=$1 AND status='PENDING'`). The caller (internal/engine) performs this in the
 	// same database transaction as the retry-dispatch it triggers, so "timer fired" and "next
-	// attempt scheduled" are atomic together — see DESIGN.md section 4. Returns
+	// attempt scheduled" are atomic together. Returns
 	// (timer, applied). If another node's poller already claimed it, applied is false.
 	FireTimerCAS(ctx context.Context, timerID uuid.UUID) (*Timer, bool, error)
 	CancelTimersForRun(ctx context.Context, runID uuid.UUID) error

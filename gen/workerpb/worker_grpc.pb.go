@@ -42,7 +42,7 @@ type WorkerServiceClient interface {
 	// extends that attempt's lease (for long-running tasks) — this is a CAS against
 	// task_attempts.status = 'LEASED' AND lease_owner = worker_id.
 	Heartbeat(ctx context.Context, in *HeartbeatRequest, opts ...grpc.CallOption) (*HeartbeatResponse, error)
-	// ClaimTask is the exactly-once boundary described in DESIGN.md section 3: it performs
+	// ClaimTask is the exactly-once boundary: it performs
 	// `UPDATE task_attempts SET status='LEASED' WHERE id=$1 AND status='QUEUED'`. Only the
 	// first caller (of possibly many, due to at-least-once Redis Streams delivery) succeeds;
 	// everyone else is told ALREADY_CLAIMED and must not execute the task handler.
@@ -117,7 +117,7 @@ type WorkerServiceServer interface {
 	// extends that attempt's lease (for long-running tasks) — this is a CAS against
 	// task_attempts.status = 'LEASED' AND lease_owner = worker_id.
 	Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error)
-	// ClaimTask is the exactly-once boundary described in DESIGN.md section 3: it performs
+	// ClaimTask is the exactly-once boundary: it performs
 	// `UPDATE task_attempts SET status='LEASED' WHERE id=$1 AND status='QUEUED'`. Only the
 	// first caller (of possibly many, due to at-least-once Redis Streams delivery) succeeds;
 	// everyone else is told ALREADY_CLAIMED and must not execute the task handler.

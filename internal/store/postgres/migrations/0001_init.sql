@@ -1,5 +1,5 @@
 -- Initial schema for the workflow orchestrator.
--- See DESIGN.md section 2 for the full rationale behind each table and index.
+-- See README.md's architecture and outbox sections for the rationale behind each table and index.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_uuid()
 

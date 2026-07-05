@@ -10,7 +10,7 @@ export default function ClusterPage() {
         <h1>Cluster / Sharding</h1>
       </div>
       <p className="muted">
-        See DESIGN.md section 5: shard ownership is a throughput optimization, not a correctness
+        Shard ownership is a throughput optimization, not a correctness
         mechanism — every scheduling decision is independently guarded by a compare-and-swap in
         Postgres, so this node only reflects how work is currently partitioned, not who is "allowed"
         to make a given transition.

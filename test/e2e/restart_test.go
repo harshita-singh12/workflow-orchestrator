@@ -216,7 +216,7 @@ type historyEvent struct {
 // starts the real server binary as a subprocess, kicks off a 6-step sequential workflow,
 // waits for genuine partial progress, SIGKILLs the server mid-flight, restarts it against
 // the same Postgres/Redis, and asserts the workflow still completes correctly — proving
-// state lives in the database, not in server memory (DESIGN.md section 0).
+// state lives in the database, not in server memory.
 func TestServerRestartMidWorkflow(t *testing.T) {
 	requireInfra(t)
 
@@ -359,7 +359,7 @@ func TestServerRestartMidWorkflow(t *testing.T) {
 	if got := counter.Load(); got < 6 {
 		t.Errorf("expected the counted_step handler to have run at least 6 times (once per step), got %d", got)
 	} else {
-		t.Logf("counted_step handler ran %d times across 6 steps (>6 is expected/documented when a crash lands between a handler finishing and its result being reported — see DESIGN.md section 3)", got)
+		t.Logf("counted_step handler ran %d times across 6 steps (>6 is expected/documented when a crash lands between a handler finishing and its result being reported — see the durability-test section of README.md)", got)
 	}
 
 	t.Logf("PASS: workflow survived a SIGKILL of the server process mid-flight and completed correctly after restart")

@@ -1,8 +1,9 @@
 // Package engine contains the orchestration logic: turning DAG definitions into runs,
 // evaluating which steps are ready to dispatch, handling task results, retry backoff,
 // timers, signals and run-completion detection. Every exported entry point is designed to
-// be a pure function of database state wrapped in a single transaction — see DESIGN.md
-// section 0 for why that property is what makes durable execution work.
+// be a pure function of database state wrapped in a single transaction — that property is
+// what makes durable execution work: a crash loses nothing but a few milliseconds of
+// in-flight work, and recovery is just calling reconcile again.
 package engine
 
 import (
@@ -21,7 +22,7 @@ import (
 )
 
 // NumShards is the fixed size of the consistent-hash ring workflow runs are partitioned
-// over (DESIGN.md section 5). Fixed at compile time for simplicity; changing it would
+// over. Fixed at compile time for simplicity; changing it would
 // require a migration that recomputes shard_id for existing rows.
 const NumShards = 256
 

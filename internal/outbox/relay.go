@@ -1,10 +1,10 @@
-// Package outbox implements the relay half of the transactional outbox pattern described in
-// DESIGN.md section 2.1: it polls Postgres for PENDING rows, publishes each to its Redis
+// Package outbox implements the relay half of the transactional outbox pattern: it polls
+// Postgres for PENDING rows, publishes each to its Redis
 // Stream, and marks it PUBLISHED — all with FOR UPDATE SKIP LOCKED so multiple relay
 // instances (one per server node) can run concurrently without duplicating work, and with
 // at-least-once semantics across a crash (a row that got XADD'd but not yet marked
 // PUBLISHED before a crash is simply republished — harmless, because task_attempt claiming
-// is itself idempotent; see DESIGN.md section 3).
+// is itself idempotent).
 package outbox
 
 import (

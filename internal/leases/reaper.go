@@ -1,7 +1,7 @@
-// Package leases implements the lease-expiry reaper described in DESIGN.md section 3 point
-// 4: it periodically finds task attempts whose worker went silent past its lease deadline
-// and drives them through the same retry/fail path a reported failure would take, closing
-// the "worker crashed after claiming but before reporting" gap.
+// Package leases implements the lease-expiry reaper: it periodically finds task attempts
+// whose worker went silent past its lease deadline and drives them through the same
+// retry/fail path a reported failure would take, closing the "worker crashed after claiming
+// but before reporting" gap.
 package leases
 
 import (
