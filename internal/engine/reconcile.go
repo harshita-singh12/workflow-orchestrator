@@ -460,7 +460,7 @@ func computeBackoff(step *store.Step, attemptsMade int) time.Duration {
 	return time.Duration(jitter) * time.Millisecond
 }
 
-// HandleFiredTimer is called by the timer poller (internal/timerservice) once it discovers a
+// HandleFiredTimer is called by the timer poller (internal/timers) once it discovers a
 // candidate due timer. It atomically claims the timer (CAS PENDING->FIRED) and applies its
 // effect in one transaction — see the FireTimerCAS doc comment.
 func (e *Engine) HandleFiredTimer(ctx context.Context, timerID uuid.UUID) error {
