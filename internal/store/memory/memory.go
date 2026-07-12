@@ -169,6 +169,12 @@ func (t *txQueries) ListWorkflowRuns(ctx context.Context, f store.RunFilter) ([]
 		out = append(out, *cp(r))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	if f.Offset > 0 {
+		if f.Offset >= len(out) {
+			return []store.WorkflowRun{}, nil
+		}
+		out = out[f.Offset:]
+	}
 	if f.Limit > 0 && len(out) > f.Limit {
 		out = out[:f.Limit]
 	}

@@ -58,7 +58,7 @@ func (rs *runState) anyDispatchedOrRunning() bool {
 // creation, a task result being reported, a retry timer firing, a signal arriving, and the
 // periodic recovery sweep all end by calling this. It must run inside store.WithTx.
 func (e *Engine) reconcileTx(ctx context.Context, q store.Queries, run *store.WorkflowRun, steps []store.Step) error {
-	if run.Status == store.RunCompleted || run.Status == store.RunFailed || run.Status == store.RunCancelled {
+	if store.RunTerminal(run.Status) {
 		return nil // terminal run, nothing to reconcile
 	}
 
@@ -503,8 +503,12 @@ func (e *Engine) handleRetryTimerFired(ctx context.Context, q store.Queries, tim
 	if err != nil {
 		return err
 	}
-	if step.Status != store.StepRetryBackoff {
-		return nil // superseded (e.g. run cancelled) since the timer was scheduled
+	if step.Status != store.StepRetryBackoff || store.RunTerminal(run.Status) {
+		// Superseded: either something else already moved the step on, or the run reached a
+		// terminal state (e.g. CancelRun) concurrently with this timer firing. CancelRun also
+		// cancels pending timers, but that update and this one are independent transactions,
+		// so re-check the run status here rather than relying solely on the step's status.
+		return nil
 	}
 	if err := e.dispatchStep(ctx, q, run, step, []store.StepStatus{store.StepRetryBackoff}); err != nil {
 		return err
@@ -569,7 +573,7 @@ func (e *Engine) CancelRun(ctx context.Context, runID uuid.UUID) error {
 		if err != nil {
 			return err
 		}
-		if run.Status == store.RunCompleted || run.Status == store.RunFailed || run.Status == store.RunCancelled {
+		if store.RunTerminal(run.Status) {
 			return nil
 		}
 		steps, err := q.GetSteps(ctx, runID)

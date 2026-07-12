@@ -46,6 +46,16 @@ func StepTerminal(s StepStatus) bool {
 	}
 }
 
+// RunTerminal reports whether a run will never transition again.
+func RunTerminal(s RunStatus) bool {
+	switch s {
+	case RunCompleted, RunFailed, RunCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
 type AttemptStatus string
 
 const (
