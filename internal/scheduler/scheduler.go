@@ -42,8 +42,6 @@ type Scheduler struct {
 
 	isLeader atomic.Bool
 	owned    atomic.Pointer[[]int]
-
-	mu sync.Mutex
 }
 
 func New(rdb *redis.Client, nodeID string, log *slog.Logger) *Scheduler {
@@ -111,7 +109,9 @@ func (s *Scheduler) liveMembers(ctx context.Context) ([]string, error) {
 	cutoffStr := strconv.FormatInt(cutoff, 10)
 	// Opportunistically prune long-dead members so the ring doesn't accumulate cruft.
 	_ = s.rdb.ZRemRangeByScore(ctx, membersKey, "-inf", "("+cutoffStr).Err()
-	return s.rdb.ZRangeByScore(ctx, membersKey, &redis.ZRangeBy{Min: cutoffStr, Max: "+inf"}).Result()
+	return s.rdb.ZRangeArgs(ctx, redis.ZRangeArgs{
+		Key: membersKey, Start: cutoffStr, Stop: "+inf", ByScore: true,
+	}).Result()
 }
 
 func (s *Scheduler) leaderLoop(ctx context.Context) {

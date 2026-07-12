@@ -14,7 +14,6 @@ const (
 	ClaimOK             ClaimResult = "CLAIMED"
 	ClaimAlreadyClaimed ClaimResult = "ALREADY_CLAIMED"
 	ClaimNotFound       ClaimResult = "NOT_FOUND"
-	ClaimRunCancelled   ClaimResult = "RUN_CANCELLED"
 )
 
 // Queries is every read/write operation the engine and its background services need.
