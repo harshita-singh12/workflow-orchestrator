@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/aryanraj/workflow-orchestrator/internal/store"
 )
@@ -18,9 +19,16 @@ type queries struct {
 	db dbtx
 }
 
+// pgUniqueViolation is Postgres error code 23505 (unique_violation).
+const pgUniqueViolation = "23505"
+
 func wrapErr(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return store.ErrNotFound
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
+		return store.ErrConflict
 	}
 	return err
 }
@@ -32,7 +40,11 @@ func wrapErr(err error) error {
 func (q *queries) CreateWorkflowDefinition(ctx context.Context, name string, version int, dag []byte) (*store.WorkflowDefinition, error) {
 	row := q.db.QueryRow(ctx, `INSERT INTO workflow_definitions (name, version, dag) VALUES ($1,$2,$3)
 		RETURNING id, name, version, dag, created_at`, name, version, dag)
-	return scanWorkflowDefinition(row)
+	d, err := scanWorkflowDefinition(row)
+	if err != nil {
+		return nil, wrapErr(err)
+	}
+	return d, nil
 }
 
 func (q *queries) GetWorkflowDefinition(ctx context.Context, name string, version int) (*store.WorkflowDefinition, error) {

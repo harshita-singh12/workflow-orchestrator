@@ -7,6 +7,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -112,6 +113,10 @@ func (s *Server) handleCreateDefinition(w http.ResponseWriter, r *http.Request) 
 	}
 	saved, err := s.Engine.RegisterDefinition(r.Context(), def)
 	if err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			writeErr(w, http.StatusConflict, fmt.Sprintf("workflow %q version %d already registered", def.Name, def.Version))
+			return
+		}
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}

@@ -246,3 +246,11 @@ var ErrNotFound = errNotFound{}
 type errNotFound struct{}
 
 func (errNotFound) Error() string { return "store: not found" }
+
+// ErrConflict is returned when a write would violate a uniqueness constraint (e.g.
+// registering a workflow definition whose name+version already exists).
+var ErrConflict = errConflict{}
+
+type errConflict struct{}
+
+func (errConflict) Error() string { return "store: conflict" }

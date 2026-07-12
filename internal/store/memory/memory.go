@@ -71,6 +71,11 @@ func (s *Store) CreateWorkflowDefinition(ctx context.Context, name string, versi
 	return (*txQueries)(s).CreateWorkflowDefinition(ctx, name, version, dag)
 }
 func (t *txQueries) CreateWorkflowDefinition(ctx context.Context, name string, version int, dag []byte) (*store.WorkflowDefinition, error) {
+	for _, existing := range t.definitions {
+		if existing.Name == name && existing.Version == version {
+			return nil, store.ErrConflict
+		}
+	}
 	d := &store.WorkflowDefinition{ID: uuid.New(), Name: name, Version: version, DAG: append(json.RawMessage{}, dag...), CreatedAt: time.Now()}
 	t.definitions[d.ID] = d
 	return d, nil
