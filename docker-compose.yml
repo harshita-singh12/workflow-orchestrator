@@ -1,6 +1,7 @@
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-orchestrator}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-orchestrator}
@@ -20,6 +21,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     ports:
       - "6380:6379" # host-side only; see the postgres port comment above
     healthcheck:
@@ -32,6 +34,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.server
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
@@ -60,6 +63,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.worker
+    restart: unless-stopped
     depends_on:
       server:
         condition: service_healthy
@@ -77,10 +81,18 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+    restart: unless-stopped
     depends_on:
       - server
     ports:
       - "3002:80"
+    healthcheck:
+      # 127.0.0.1, not localhost: this image's nginx only listens on IPv4, and "localhost"
+      # resolving to ::1 first inside the container made wget fail with connection refused.
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
 
 volumes:
   pgdata:

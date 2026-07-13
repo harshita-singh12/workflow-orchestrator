@@ -1,0 +1,9 @@
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+*.md
+examples
+frontend/node_modules
+frontend/dist
