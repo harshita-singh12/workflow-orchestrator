@@ -8,7 +8,7 @@ export default function JsonView({ value }: { value: unknown }) {
   } catch {
     text = String(value);
   }
-  if (text === "{}" || text === "null") {
+  if (text === "{}" || text === "null" || text === "[]") {
     return <span className="json-empty">—</span>;
   }
   return <pre className="json-view">{text}</pre>;

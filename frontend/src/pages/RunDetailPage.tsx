@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
 import { usePolling } from "../hooks";
@@ -14,11 +14,21 @@ export default function RunDetailPage() {
 
   const isTerminal = (s?: string) => s === "COMPLETED" || s === "FAILED" || s === "CANCELLED";
 
+  // Tracks the last-seen run status so the run poll itself can stop once the run reaches a
+  // terminal state (mirrors the steps/history polls below) without the circularity of a poll
+  // referencing its own not-yet-assigned result.
+  const [runStatus, setRunStatus] = useState<string | undefined>(undefined);
+
   const { data: run, error: runError, refresh: refreshRun } = usePolling(
     () => api.getRun(id),
     1500,
     [id],
+    !isTerminal(runStatus),
   );
+
+  useEffect(() => {
+    setRunStatus(run?.Status);
+  }, [run?.Status]);
   const { data: steps, refresh: refreshSteps } = usePolling(
     () => api.getSteps(id),
     1500,
