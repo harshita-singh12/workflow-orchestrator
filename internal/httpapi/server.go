@@ -45,11 +45,21 @@ func New(e *engine.Engine, s store.Store, reg *workers.Registry, sched *schedule
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) { s.router.ServeHTTP(w, r) }
 
+// maxRequestBodyBytes caps how much of a request body we'll read, generous enough for even a
+// large hand-authored workflow definition while ruling out an unbounded-body memory DoS
+// against handlers that read the whole body into memory (json.Decoder, io.ReadAll).
+const maxRequestBodyBytes = 2 << 20 // 2 MiB
+
+// maxListRunsLimit caps GET /api/runs?limit=... so a caller can't force an unbounded table
+// scan/response by passing an arbitrarily large limit.
+const maxListRunsLimit = 500
+
 func (s *Server) routes() chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(corsMiddleware)
 	r.Use(middleware.Logger)
+	r.Use(limitBodyMiddleware)
 
 	r.Get("/healthz", s.handleHealth)
 
@@ -69,6 +79,13 @@ func (s *Server) routes() chi.Router {
 		r.Get("/cluster", s.handleClusterStatus)
 	})
 	return r
+}
+
+func limitBodyMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+		next.ServeHTTP(w, r)
+	})
 }
 
 func corsMiddleware(next http.Handler) http.Handler {
@@ -173,8 +190,11 @@ func (s *Server) handleListRuns(w http.ResponseWriter, r *http.Request) {
 			f.Limit = n
 		}
 	}
+	if f.Limit > maxListRunsLimit {
+		f.Limit = maxListRunsLimit
+	}
 	if v := q.Get("offset"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			f.Offset = n
 		}
 	}
