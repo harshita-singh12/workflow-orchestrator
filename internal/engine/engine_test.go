@@ -3,6 +3,7 @@ package engine_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -416,4 +417,62 @@ steps:
 
 	require.Equal(t, store.ClaimOK, res1)
 	require.Equal(t, store.ClaimAlreadyClaimed, res2)
+}
+
+func TestRegisterDuplicateDefinitionIsConflict(t *testing.T) {
+	ctx := context.Background()
+	e, _ := newTestEngine(t)
+
+	def := mustDef(t, `
+name: dup-def-wf
+version: 1
+steps:
+  - name: a
+    type: noop
+`)
+	_, err := e.RegisterDefinition(ctx, def)
+	require.NoError(t, err)
+
+	// Re-parse: RegisterDefinition mutates/defaults its argument, so reuse a fresh copy rather
+	// than the already-validated def above.
+	again := mustDef(t, `
+name: dup-def-wf
+version: 1
+steps:
+  - name: a
+    type: noop
+`)
+	_, err = e.RegisterDefinition(ctx, again)
+	require.Error(t, err)
+	require.True(t, errors.Is(err, store.ErrConflict), "expected store.ErrConflict, got %v", err)
+}
+
+func TestListWorkflowRunsRespectsOffset(t *testing.T) {
+	ctx := context.Background()
+	e, s := newTestEngine(t)
+
+	def := mustDef(t, `
+name: paged-wf
+version: 1
+steps:
+  - name: a
+    type: noop
+`)
+	_, err := e.RegisterDefinition(ctx, def)
+	require.NoError(t, err)
+
+	for i := 0; i < 3; i++ {
+		_, err := e.CreateRun(ctx, "paged-wf", 0, nil)
+		require.NoError(t, err)
+	}
+
+	all, err := s.ListWorkflowRuns(ctx, store.RunFilter{Limit: 10})
+	require.NoError(t, err)
+	require.Len(t, all, 3)
+
+	paged, err := s.ListWorkflowRuns(ctx, store.RunFilter{Limit: 10, Offset: 1})
+	require.NoError(t, err)
+	require.Len(t, paged, 2, "offset should skip the first (most recent) run")
+	require.NotEqual(t, all[0].ID, paged[0].ID)
+	require.Equal(t, all[1].ID, paged[0].ID)
 }
