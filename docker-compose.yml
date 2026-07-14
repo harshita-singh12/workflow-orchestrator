@@ -48,6 +48,14 @@ services:
       NODE_ID: server-1
       ENABLE_SHARDING: "false"
       LEASE_DURATION_SECONDS: "30"
+      # Shared secret required as `Authorization: Bearer <key>` on the HTTP API (except
+      # /healthz) and as gRPC metadata on the worker API. This default is only safe because
+      # this whole stack is meant for local/dev use — change it via a real .env file (or your
+      # deployment's secrets mechanism) before running this anywhere reachable by anyone else.
+      WORKFLOW_API_KEY: ${WORKFLOW_API_KEY:-dev-local-key-change-me}
+      # Must match the dashboard's own origin (the `frontend` service's host port below) —
+      # see internal/httpapi's CORS middleware.
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3002}
     ports:
       - "8080:8080"
       - "9091:9090" # host-side 9091 to dodge common local port-9090 conflicts (e.g. Prometheus)
@@ -74,6 +82,8 @@ services:
       # "<hostname>-<pid>", and each replica gets a distinct container hostname, which is
       # what keeps them from colliding in the worker registry / lease-owner bookkeeping.
       WORKER_CONCURRENCY: "4"
+      # Must match the server's WORKFLOW_API_KEY above — sent as gRPC metadata on every call.
+      WORKFLOW_API_KEY: ${WORKFLOW_API_KEY:-dev-local-key-change-me}
     deploy:
       replicas: 2
 
@@ -81,6 +91,11 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        # Baked into the built JS bundle at build time (Vite only exposes VITE_-prefixed
+        # vars to client code) so the dashboard can send the same key the server expects.
+        # Must match WORKFLOW_API_KEY above.
+        VITE_API_KEY: ${WORKFLOW_API_KEY:-dev-local-key-change-me}
     restart: unless-stopped
     depends_on:
       - server

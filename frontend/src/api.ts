@@ -104,10 +104,21 @@ export interface ClusterStatus {
   total_shards?: number;
 }
 
+// API_KEY is baked in at build time (see frontend/Dockerfile and docker-compose.yml's
+// `frontend.build.args.VITE_API_KEY`) and must match the server's WORKFLOW_API_KEY. The
+// fallback here mirrors internal/config.DefaultDevAPIKey so `npm run dev` also works
+// unconfigured against an unconfigured `go run ./cmd/server` — change both together before
+// deploying anywhere beyond local dev.
+const API_KEY = import.meta.env.VITE_API_KEY || "dev-local-key-change-me";
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const resp = await fetch(path, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${API_KEY}`,
+      ...(init?.headers ?? {}),
+    },
   });
   if (!resp.ok) {
     let msg = `${resp.status} ${resp.statusText}`;
