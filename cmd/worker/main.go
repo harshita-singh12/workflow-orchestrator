@@ -20,6 +20,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 
 	workerpb "github.com/aryanraj/workflow-orchestrator/gen/workerpb"
 	"github.com/aryanraj/workflow-orchestrator/internal/config"
@@ -42,7 +43,11 @@ func main() {
 	}
 	defer rdb.Close()
 
-	conn, err := grpc.NewClient(cfg.ServerGRPCAddr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	conn, err := grpc.NewClient(
+		cfg.ServerGRPCAddr,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithUnaryInterceptor(apiKeyUnaryInterceptor(cfg.APIKey)),
+	)
 	if err != nil {
 		log.Error("failed to dial server", "addr", cfg.ServerGRPCAddr, "err", err)
 		os.Exit(1)
@@ -62,6 +67,15 @@ func main() {
 		os.Exit(1)
 	}
 	log.Info("worker shut down cleanly")
+}
+
+// apiKeyUnaryInterceptor attaches `authorization: Bearer <apiKey>` outgoing metadata to every
+// unary RPC, matching what the server's grpcapi.AuthUnaryInterceptor requires.
+func apiKeyUnaryInterceptor(apiKey string) grpc.UnaryClientInterceptor {
+	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+apiKey)
+		return invoker(ctx, method, req, reply, cc, opts...)
+	}
 }
 
 // registerDemoHandlers wires up the task types used by the example workflows in

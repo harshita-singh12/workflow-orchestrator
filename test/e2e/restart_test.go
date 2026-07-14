@@ -31,11 +31,19 @@ import (
 	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
 
 	workerpb "github.com/aryanraj/workflow-orchestrator/gen/workerpb"
+	"github.com/aryanraj/workflow-orchestrator/internal/config"
 	"github.com/aryanraj/workflow-orchestrator/internal/queue/redisstream"
 	"github.com/aryanraj/workflow-orchestrator/internal/worker"
 )
+
+// The server subprocess this test spawns inherits the parent's environment (see
+// startServer), so it falls back to config.DefaultDevAPIKey exactly like an unconfigured
+// `go run ./cmd/server` would. Every HTTP/gRPC call this test makes needs to carry that same
+// key, matching what a real client (dashboard, worker) is required to send.
+const testAPIKey = config.DefaultDevAPIKey
 
 func e2eDatabaseURL() string {
 	if v := os.Getenv("E2E_DATABASE_URL"); v != "" {
@@ -253,7 +261,14 @@ func TestServerRestartMidWorkflow(t *testing.T) {
 	var mu sync.Mutex
 	seenAttempts := map[string]bool{}
 
-	grpcConn, err := grpc.NewClient(fmt.Sprintf("127.0.0.1:%d", grpcPort), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	grpcConn, err := grpc.NewClient(
+		fmt.Sprintf("127.0.0.1:%d", grpcPort),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+			ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+testAPIKey)
+			return invoker(ctx, method, req, reply, cc, opts...)
+		}),
+	)
 	if err != nil {
 		t.Fatalf("dial grpc: %v", err)
 	}
@@ -372,6 +387,7 @@ func postJSON(t *testing.T, client *http.Client, url string, body []byte, conten
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Authorization", "Bearer "+testAPIKey)
 	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("POST %s: %v", url, err)
@@ -384,9 +400,20 @@ func postJSON(t *testing.T, client *http.Client, url string, body []byte, conten
 	return respBody
 }
 
+// authGet is client.Get plus the bearer token every /api route now requires.
+func authGet(t *testing.T, client *http.Client, url string) (*http.Response, error) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+testAPIKey)
+	return client.Do(req)
+}
+
 func getRun(t *testing.T, client *http.Client, httpAddr, id string) runStatusResp {
 	t.Helper()
-	resp, err := client.Get(httpAddr + "/api/runs/" + id)
+	resp, err := authGet(t, client, httpAddr+"/api/runs/"+id)
 	if err != nil {
 		t.Fatalf("GET run: %v", err)
 	}
@@ -406,7 +433,7 @@ type stepResp struct {
 
 func getSteps(t *testing.T, client *http.Client, httpAddr, id string) []stepResp {
 	t.Helper()
-	resp, err := client.Get(httpAddr + "/api/runs/" + id + "/steps")
+	resp, err := authGet(t, client, httpAddr+"/api/runs/"+id+"/steps")
 	if err != nil {
 		t.Fatalf("GET steps: %v", err)
 	}
@@ -421,7 +448,7 @@ func getSteps(t *testing.T, client *http.Client, httpAddr, id string) []stepResp
 
 func getHistory(t *testing.T, client *http.Client, httpAddr, id string) []historyEvent {
 	t.Helper()
-	resp, err := client.Get(httpAddr + "/api/runs/" + id + "/history")
+	resp, err := authGet(t, client, httpAddr+"/api/runs/"+id+"/history")
 	if err != nil {
 		return nil
 	}

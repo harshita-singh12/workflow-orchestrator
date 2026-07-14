@@ -101,7 +101,7 @@ func main() {
 	// function of DB state, so recovery is just "call it again".
 	go runRecoverySweep(ctx, eng, shardIDsFunc, log)
 
-	grpcServer := grpc.NewServer()
+	grpcServer := grpc.NewServer(grpc.UnaryInterceptor(grpcapi.AuthUnaryInterceptor(cfg.APIKey)))
 	workerpb.RegisterWorkerServiceServer(grpcServer, grpcapi.New(st, eng, rdb, log, cfg.LeaseDuration))
 	grpcLis, err := net.Listen("tcp", cfg.GRPCAddr)
 	if err != nil {
