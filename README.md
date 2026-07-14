@@ -21,6 +21,7 @@ together operationally, how to run it, and what was actually measured.
 - [Phase 2 features and their tradeoffs](#phase-2-features-and-their-tradeoffs)
 - [Pluggable backends](#pluggable-backends)
 - [Running it](#running-it)
+- [Authentication](#authentication)
 - [Testing](#testing)
 - [The durability test](#the-durability-test-actually-run-not-just-written)
 - [Load test results and bottleneck analysis](#load-test-results-and-bottleneck-analysis)
@@ -273,10 +274,15 @@ deliberately non-default to avoid clobbering anything else you have running loca
 Verify end-to-end:
 
 ```bash
-curl -X POST localhost:8080/api/definitions --data-binary @examples/simple-sequential.yaml -H "Content-Type: application/yaml"
-curl -X POST localhost:8080/api/runs -d '{"name":"simple-sequential"}'
+curl -X POST localhost:8080/api/definitions --data-binary @examples/simple-sequential.yaml \
+  -H "Content-Type: application/yaml" -H "Authorization: Bearer dev-local-key-change-me"
+curl -X POST localhost:8080/api/runs -d '{"name":"simple-sequential"}' \
+  -H "Authorization: Bearer dev-local-key-change-me"
 # open http://localhost:3002 and watch it complete
 ```
+
+(`dev-local-key-change-me` is the default dev API key — see
+[Authentication](#authentication) below.)
 
 ### Without Docker
 
@@ -295,6 +301,34 @@ All configuration is environment variables with local-dev defaults baked in — 
 `internal/config/config.go` and `.env.example` for the full list. `ENABLE_SHARDING=true`
 turns on the Phase 2 leader-election/consistent-hashing loops if you want to run multiple
 server instances against the same Postgres/Redis.
+
+## Authentication
+
+Every HTTP API route under `/api/...` requires an `Authorization: Bearer <key>` header;
+`/healthz` stays open (unauthenticated), since that's what container/k8s liveness and
+readiness probes expect to hit. The gRPC worker API (`internal/grpcapi`) requires the same
+key as request metadata — it's published to the host in `docker-compose.yml` exactly like the
+HTTP port, so it gets the same protection.
+
+- **Env var**: `WORKFLOW_API_KEY`. Read by the server (`internal/config.LoadServerConfig`) and
+  the worker (`LoadWorkerConfig`); docker-compose also passes it as the frontend's
+  `VITE_API_KEY` build arg so the dashboard sends it too (see `frontend/Dockerfile`,
+  `frontend/src/api.ts`).
+- **Default**: `dev-local-key-change-me` (`internal/config.DefaultDevAPIKey`) when
+  `WORKFLOW_API_KEY` is unset, so `docker compose up` and `go run ./cmd/server` both work
+  out of the box with zero setup.
+- **Fails closed**: an empty configured key rejects *every* request rather than disabling
+  auth — there's no way to accidentally run with the API open.
+- **Missing/invalid credentials** get a `401` with a JSON body (`{"error": "..."}"`), not a
+  stack trace.
+
+**Change `WORKFLOW_API_KEY` before running this anywhere reachable by anyone but you** — set
+it in your `.env` (see `.env.example`) to a real generated secret, e.g. `openssl rand -hex
+32`, and rebuild (`docker compose up -d --build`) so the frontend bundle picks up the new
+value too. The default is committed to this repo and must be treated as public.
+
+CORS is scoped to an explicit allowlist (`CORS_ALLOWED_ORIGINS`, comma-separated), defaulting
+to the dashboard's own docker-compose origin (`http://localhost:3002`) — never a wildcard.
 
 ## Testing
 
