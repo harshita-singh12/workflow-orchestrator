@@ -23,7 +23,13 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/aryanraj/workflow-orchestrator/internal/config"
 )
+
+// apiKey is sent as `Authorization: Bearer <apiKey>` on every request; set from the -key flag
+// in main(), defaulting to the same dev key the server falls back to when unconfigured.
+var apiKey string
 
 const workflowDefYAML = `
 name: loadtest-12step
@@ -87,7 +93,9 @@ func main() {
 	drainTimeout := flag.Duration("drain-timeout", 60*time.Second, "max time to wait for all launched runs to reach a terminal status")
 	pollInterval := flag.Duration("poll-interval", 200*time.Millisecond, "how often each drain worker re-checks a run's status")
 	drainConcurrency := flag.Int("drain-concurrency", 32, "number of concurrent goroutines polling run status during drain")
+	key := flag.String("key", config.DefaultDevAPIKey, "API key sent as `Authorization: Bearer <key>` (must match the target server's WORKFLOW_API_KEY)")
 	flag.Parse()
+	apiKey = *key
 
 	client := &http.Client{Timeout: 10 * time.Second}
 
@@ -113,6 +121,7 @@ func registerDefinition(client *http.Client, httpAddr string) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/yaml")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
@@ -164,6 +173,7 @@ func launchOne(client *http.Client, httpAddr string) *runResult {
 	if err != nil {
 		return &runResult{launchedAt: start, launchErr: err}
 	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
 	resp, err := client.Do(req)
 	launchDur := time.Since(start)
 	if err != nil {
@@ -214,7 +224,14 @@ func drainPhase(client *http.Client, httpAddr string, results []*runResult, conc
 
 func pollUntilTerminal(client *http.Client, httpAddr string, r *runResult, pollInterval time.Duration, deadline time.Time) {
 	for time.Now().Before(deadline) {
-		resp, err := client.Get(httpAddr + "/api/runs/" + r.id)
+		pollReq, err := http.NewRequest(http.MethodGet, httpAddr+"/api/runs/"+r.id, nil)
+		if err != nil {
+			r.pollErr = err
+			time.Sleep(pollInterval)
+			continue
+		}
+		pollReq.Header.Set("Authorization", "Bearer "+apiKey)
+		resp, err := client.Do(pollReq)
 		if err != nil {
 			r.pollErr = err
 			time.Sleep(pollInterval)

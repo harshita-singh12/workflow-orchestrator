@@ -117,7 +117,7 @@ func main() {
 
 	httpSrv := &http.Server{
 		Addr:    cfg.HTTPAddr,
-		Handler: httpapi.New(eng, st, registry, sched, log),
+		Handler: httpapi.New(eng, st, registry, sched, log, cfg.APIKey, cfg.AllowedOrigins),
 	}
 	go func() {
 		log.Info("http server listening", "addr", cfg.HTTPAddr)

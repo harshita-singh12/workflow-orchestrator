@@ -5,6 +5,7 @@
 package httpapi
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -31,14 +33,22 @@ type Server struct {
 	Scheduler *scheduler.Scheduler // optional (nil in single-node/no-scheduler mode)
 	Log       *slog.Logger
 
+	// APIKey is the shared secret required as `Authorization: Bearer <key>` on every route
+	// under /api. Every request is rejected (fail closed) when this is empty — an empty key
+	// must never mean "auth disabled".
+	APIKey string
+	// AllowedOrigins is the CORS allowlist; Access-Control-Allow-Origin reflects the request's
+	// Origin header only when it exactly matches an entry here. Never a wildcard.
+	AllowedOrigins []string
+
 	router chi.Router
 }
 
-func New(e *engine.Engine, s store.Store, reg *workers.Registry, sched *scheduler.Scheduler, log *slog.Logger) *Server {
+func New(e *engine.Engine, s store.Store, reg *workers.Registry, sched *scheduler.Scheduler, log *slog.Logger, apiKey string, allowedOrigins []string) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
-	srv := &Server{Engine: e, Store: s, Registry: reg, Scheduler: sched, Log: log}
+	srv := &Server{Engine: e, Store: s, Registry: reg, Scheduler: sched, Log: log, APIKey: apiKey, AllowedOrigins: allowedOrigins}
 	srv.router = srv.routes()
 	return srv
 }
@@ -57,13 +67,17 @@ const maxListRunsLimit = 500
 func (s *Server) routes() chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
-	r.Use(corsMiddleware)
+	r.Use(corsMiddleware(s.AllowedOrigins))
 	r.Use(middleware.Logger)
 	r.Use(limitBodyMiddleware)
 
+	// /healthz stays unauthenticated on purpose — container/k8s liveness and readiness
+	// probes hit this without credentials, and it reveals nothing but process liveness.
 	r.Get("/healthz", s.handleHealth)
 
 	r.Route("/api", func(r chi.Router) {
+		r.Use(s.authMiddleware)
+
 		r.Post("/definitions", s.handleCreateDefinition)
 		r.Get("/definitions", s.handleListDefinitions)
 
@@ -88,17 +102,62 @@ func limitBodyMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func corsMiddleware(next http.Handler) http.Handler {
+// corsMiddleware only ever reflects Access-Control-Allow-Origin back for an Origin that
+// exactly matches an entry in allowedOrigins — it never emits "*". A request with no Origin
+// header (curl, server-to-server, same-origin) or a non-matching one just gets no CORS
+// headers, which is exactly what causes a browser making a cross-origin fetch to reject the
+// response; non-browser callers are unaffected either way, since CORS is a browser-enforced
+// policy, not a server-side access control.
+func corsMiddleware(allowedOrigins []string) func(http.Handler) http.Handler {
+	allowed := make(map[string]struct{}, len(allowedOrigins))
+	for _, o := range allowedOrigins {
+		allowed[o] = struct{}{}
+	}
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if origin := r.Header.Get("Origin"); origin != "" {
+				if _, ok := allowed[origin]; ok {
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+					w.Header().Set("Vary", "Origin")
+				}
+			}
+			w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			if r.Method == http.MethodOptions {
+				w.WriteHeader(http.StatusNoContent)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// authMiddleware requires `Authorization: Bearer <APIKey>` on every route it wraps. An empty
+// s.APIKey always fails closed — every request is rejected, never treated as "auth off" — so
+// a misconfiguration can't silently reopen the API.
+func (s *Server) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
+		if !validAPIKey(s.APIKey, r.Header.Get("Authorization")) {
+			writeErr(w, http.StatusUnauthorized, "missing or invalid API key")
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// validAPIKey reports whether the `Authorization: Bearer <token>` header carries a token
+// equal to expected, using a constant-time comparison so response timing can't be used to
+// brute-force the key one byte at a time. Always false when expected is empty.
+func validAPIKey(expected, header string) bool {
+	if expected == "" {
+		return false
+	}
+	const prefix = "Bearer "
+	if !strings.HasPrefix(header, prefix) {
+		return false
+	}
+	token := strings.TrimPrefix(header, prefix)
+	return subtle.ConstantTimeCompare([]byte(token), []byte(expected)) == 1
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
